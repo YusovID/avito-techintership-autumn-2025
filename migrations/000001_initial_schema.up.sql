@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS pull_requests (
     author_id VARCHAR(255) NOT NULL REFERENCES users(id),
     status VARCHAR(50) NOT NULL CHECK(status IN ('OPEN', 'MERGED')) DEFAULT 'OPEN',
     need_more_reviewers BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPZ DEFAULT NOW(),
-    merged_at TIMESTAMPZ
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    merged_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS reviewers (
