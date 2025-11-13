@@ -40,7 +40,7 @@ func main() {
 		fmt.Sprintf("%s?sslmode=disable&x-migrations-table=%s", migration.ConnStr, migration.MigrationsTable),
 	)
 	if err != nil {
-		log.Fatalf("can't create new migration: %v", err)
+		log.Fatalf("can't create new migration: %w", err)
 	}
 
 	// Применяем все доступные "up" миграции.
@@ -52,7 +52,7 @@ func main() {
 			return
 		}
 		// В случае любой другой ошибки - завершаем приложение.
-		log.Fatalf("can't do migrations: %v", err)
+		log.Fatalf("can't do migrations: %w", err)
 	}
 
 	fmt.Println("migrations applied successfully")
@@ -71,7 +71,7 @@ func MustLoad() *MigrationCfg {
 
 	// Проверяем, что файл конфигурации существует.
 	if _, err := os.Stat(configPath); err != nil {
-		log.Fatalf("file '%s' doesn't exist: %v", configPath, err)
+		log.Fatalf("file '%s' doesn't exist: %w", configPath, err)
 	}
 
 	// Получаем путь к директории с файлами миграций.
@@ -90,7 +90,7 @@ func MustLoad() *MigrationCfg {
 	// Нам нужны только данные для подключения к БД.
 	var cfg config.Config
 	if err := cleanenv.ReadConfig(configPath, &cfg); err != nil {
-		log.Fatalf("can't read config: %v", err)
+		log.Fatalf("can't read config: %w", err)
 	}
 
 	// Собираем строку подключения к PostgreSQL из загруженных данных.

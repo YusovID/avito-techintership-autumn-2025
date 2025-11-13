@@ -1,56 +1,132 @@
-APP_NAME=pr-reviewer-service
-COMPOSE_FILE=compose.yml
+# ====================================================================================
+# VARIABLES
+# ====================================================================================
 
-.PHONY: up
-up: ## Запустить все сервисы в фоновом режиме
-	docker compose -f $(COMPOSE_FILE) up -d --build
+# Имя приложения и compose-файл
+APP_NAME := pr-reviewer-service
+COMPOSE_FILE := compose.yml
 
-.PHONY: down
-down: ## Остановить и удалить все сервисы, тома и сети
-	docker compose -f $(COMPOSE_FILE) down -v --remove-orphans
+# Загружаем переменные из .env файла
+-include .env
+export
 
-.PHONY: logs
+# Собираем DSN для миграций из переменных .env.
+DATABASE_URL := postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
+
+# Команды для инструментов, управляемых через go modules. Гарантирует одинаковые версии для всех.
+GO_OAPI_CODEGEN := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
+GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint
+MIGRATE := go run github.com/golang-migrate/migrate/v4/cmd/migrate
+
+# Сокращение для docker-compose команд
+COMPOSE := docker compose -f $(COMPOSE_FILE)
+
+# ====================================================================================
+# SETUP
+# ====================================================================================
+
+# Команда по умолчанию, если `make` запущен без цели.
+.DEFAULT_GOAL := help
+
+# .PHONY указывает, что цели не являются файлами.
+.PHONY: all help build up start stop restart down nuke logs ps clean generate fmt lint test test-cover tools migrate-create migrate-up migrate-down
+
+# ====================================================================================
+# GENERAL COMMANDS
+# ====================================================================================
+
+all: fmt lint test ## Запустить форматирование, линтер и тесты
+
+help: ## Показать этот список команд
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Available targets:"
+	@awk 'BEGIN {FS = ":.*?## "; printf "  \033[36m%-20s\033[0m %s\n", "Target", "Description"} /^[a-zA-Z_-]+:.*?## / { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST) | sort -k 2
+
+# ====================================================================================
+# DOCKER COMPOSE MANAGEMENT
+# ====================================================================================
+
+build: ## Собрать или пересобрать образы сервисов
+	@echo "🛠️  Building service images..."
+	@$(COMPOSE) build
+
+up: build ## Собрать образы и запустить сервисы. Основная команда для старта/обновления.
+	@echo "🚀 Starting services..."
+	@$(COMPOSE) up -d
+
+start: ## Запустить ранее остановленные контейнеры (быстро, без сборки)
+	@echo "▶️  Starting existing containers..."
+	@$(COMPOSE) start
+
+stop: ## Остановить запущенные сервисы (сохраняет их состояние)
+	@echo "🛑 Stopping services..."
+	@$(COMPOSE) stop
+
+restart: ## Перезапустить сервисы (быстрый способ: stop + start)
+	@echo "🔄 Restarting services..."
+	@$(MAKE) stop
+	@$(MAKE) start
+
+down: ## Остановить и удалить контейнеры/сети (сохраняет тома с данными)
+	@echo "🗑️  Tearing down services (volumes are preserved)..."
+	@$(COMPOSE) down --remove-orphans
+
+nuke: ## ВНИМАНИЕ: Полностью удалить всё (контейнеры, сети, ТОМА С ДАННЫМИ)
+	@echo "💥 Nuking the entire environment (containers, networks, VOLUMES)..."
+	@$(COMPOSE) down -v --remove-orphans
+
 logs: ## Показать логи всех сервисов в реальном времени
-	docker compose -f $(COMPOSE_FILE) logs -f
+	@$(COMPOSE) logs -f
 
-.PHONY: ps
 ps: ## Показать статус запущенных контейнеров
-	docker compose -f $(COMPOSE_FILE) ps
+	@$(COMPOSE) ps
 
-.PHONY: restart
-restart: down up ## Перезапустить все сервисы
+# ====================================================================================
+# GO BUILD & TEST
+# ====================================================================================
 
-.PHONY: generate
-generate: ## Сгенерировать Go код из OpenAPI спецификации
-	go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen --config=oapi-codegen.yml pkg/api/openapi.yml
+generate: tools ## Сгенерировать Go код из OpenAPI спецификации
+	@echo "📦 Generating Go code from OpenAPI spec..."
+	@$(GO_OAPI_CODEGEN) --config=oapi-codegen.yml pkg/api/openapi.yml
 
-.PHONY: lint
-lint: ## Запустить линтер для проверки качества кода
-	golangci-lint run ./...
+fmt: ## Отформатировать весь Go код
+	@echo "🎨 Formatting Go files..."
+	@gofmt -w .
 
-.PHONY: test
+lint: tools ## Запустить линтер для проверки качества кода
+	@echo "🔍 Running linter..."
+	@$(GOLANGCI_LINT) run ./...
+
 test: ## Запустить unit-тесты
-	go test ./...
+	@echo "🧪 Running tests..."
+	@go test -v -race ./...
 
-.PHONY: test-cover
 test-cover: ## Запустить тесты с покрытием и сгенерировать HTML-отчет
-	go test ./... -coverprofile=coverage.out
-	go tool cover -html=coverage.out
+	@echo "📊 Running tests with coverage..."
+	@go test ./... -coverprofile=coverage.out
+	@go tool cover -html=coverage.out
 
-.PHONY: migrate-create
+clean: ## Очистить артефакты сборки и тестирования
+	@echo "🧹 Cleaning up..."
+	@rm -f coverage.out
+
+tools: ## Установить/обновить зависимости для утилит
+	@echo "🛠️ Syncing tools dependencies..."
+	@go mod -C tools tidy
+
+# ====================================================================================
+# DATABASE MIGRATIONS
+# ====================================================================================
+
 migrate-create: ## Создать новый файл миграции (интерактивно)
-	@read -p "Enter migration name: " name; \
-	migrate create -ext sql -dir migrations -seq $$name
+	@read -p "Enter migration name (e.g., add_pr_status_index): " name; \
+	$(MIGRATE) create -ext sql -dir migrations -seq $$name
 
-.PHONY: migrate-up
 migrate-up: ## Применить все 'up' миграции (требует запущенного postgres)
-	migrate -path ./migrations -database "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}?sslmode=disable" up
+	@echo "📈 Applying database migrations..."
+	@$(MIGRATE) -path ./migrations -database "$(DATABASE_URL)" up
 
-.PHONY: migrate-down
 migrate-down: ## Откатить последнюю 'down' миграцию (требует запущенного postgres)
-	migrate -path ./migrations -database "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}?sslmode=disable" down
-
-.PHONY: help
-help: ## Показать список всех доступных команд
-	@echo "Available commands:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo "📉 Reverting last database migration..."
+	@$(MIGRATE) -path ./migrations -database "$(DATABASE_URL)" down
