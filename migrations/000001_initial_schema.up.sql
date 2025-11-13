@@ -1,0 +1,27 @@
+CREATE TABLE IF NOT EXISTS teams (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(255) PRIMARY KEY,
+    username VARCHAR(255) NOT NULL UNIQUE,
+    team_id INT REFERENCES teams(id) ON DELETE SET NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS pull_requests (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    author_id VARCHAR(255) NOT NULL REFERENCES users(id),
+    status VARCHAR(50) NOT NULL CHECK(status IN ('OPEN', 'MERGED')) DEFAULT 'OPEN',
+    need_more_reviewers BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPZ DEFAULT NOW(),
+    merged_at TIMESTAMPZ
+);
+
+CREATE TABLE IF NOT EXISTS reviewers (
+    pull_request_id VARCHAR(255) NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (pull_request_id, user_id)
+);
